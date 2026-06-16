@@ -7,6 +7,7 @@ import { assignClusters } from "../dedup/clusters";
 import { extractArticleFromUrl } from "../extract/readabilityExtract";
 import { fetchArticleImage } from "../extract/articleImage";
 import { fetchRemoteText } from "../fetch/remoteFetch";
+import { getCachedRssXml } from "../fetch/rssCache";
 import { parseRssXml } from "../rss/parser";
 import { rankArticlesForQuery, rankRssHeadlinesForQuery, rssItemToSearchArticle, buildSearchTerms, sanitizeAiKeywords } from "../search/relevance";
 import { ensureSearchIndexLoaded, indexArticles, resetSearchIndex } from "../search/flexIndex";
@@ -193,6 +194,20 @@ export function getEngineStatus(): EngineStatus {
 async function fetchFeedItems(feed: (typeof ENGLISH_NEWS_FEEDS)[0]): Promise<RssItem[]> {
   const urls = [feed.url, ...(feed.fallbackUrls ?? [])];
   let lastErr: unknown;
+
+  const cached = await getCachedRssXml(urls);
+  if (cached) {
+    try {
+      return parseRssXml(cached, {
+        source: feed.label,
+        sourceKey: feed.key,
+        category: feed.category,
+      });
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
   for (const url of urls) {
     try {
       const xml = await fetchRemoteText(url);

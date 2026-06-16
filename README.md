@@ -36,17 +36,35 @@ Open **http://127.0.0.1:5190/**
 
 After deploy: **https://theicd.github.io/GROVEE-NEWS/**
 
-Push to `main` triggers `.github/workflows/deploy-pages.yml` (test + build + Pages).
+### Static hosting (no `/api/fetch`)
 
-### What works on Pages vs local dev
+GitHub Pages is static only. The app ships a **build-time RSS cache** (`npm run build:pages`) so the first feed poll works without CORS.
 
-| Feature | `npm run dev` (local) | GitHub Pages |
-|---------|----------------------|--------------|
-| UI + search on cached DB | Yes | Yes |
-| RSS poll | Yes (via `/api/fetch` proxy) | Partial (public CORS relays) |
-| Full-page extract + Qwen | Yes | Partial (depends on relays) |
-| IndexedDB | Per browser | Per browser |
+| Feature | `npm run dev` | GitHub Pages |
+|---------|---------------|--------------|
+| RSS poll (first load) | Live | From `rss-cache.json` baked at build |
+| RSS refresh | Live via `/api/fetch` | Needs fetch proxy (see below) |
+| Search on cached DB | Yes | Yes |
+| Full-page extract + Qwen | Yes | Needs fetch proxy |
 
-**To test search:** open the site → Engage (optional Qwen) → ENGINE → Refresh feeds → wait → search `nasa`, `israel`, `tech`.
+### Live fetch on Pages (optional)
 
-For full RSS + article extraction reliability, use local dev (`start-local.bat`).
+Deploy the Cloudflare Worker in `workers/fetch-proxy/`:
+
+```bash
+cd workers/fetch-proxy
+npx wrangler login
+npx wrangler deploy
+```
+
+Then set in `.env.production`:
+
+```
+VITE_FETCH_PROXY_URL=https://grovee-news-fetch.<your-subdomain>.workers.dev
+```
+
+Rebuild with `npm run build:pages` and redeploy `dist/`.
+
+**To test search:** open site → ENGINE → Refresh feeds → search `nasa`, `israel`, `openai`.
+
+For full live RSS + article extraction, use local dev (`start-local.bat` on port 5190).

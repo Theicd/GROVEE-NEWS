@@ -3,14 +3,58 @@ import { normalizeArticleBody } from "../extract/normalizeArticleBody";
 
 const DEFAULT_TIMEOUT_MS = 22_000;
 
+export type FetchRouteContext = {
+  dev: boolean;
+  hostname: string;
+  proxyUrl: string;
+};
+
 /** Local Vite proxy — no CORS in dev/preview. */
-const localProxy = (url: string) => `/api/fetch?url=${encodeURIComponent(url)}`;
+export const localProxy = (url: string) => `/api/fetch?url=${encodeURIComponent(url)}`;
+
+export const configuredProxy = (base: string, url: string) =>
+  `${base.replace(/\/$/, "")}?url=${encodeURIComponent(url)}`;
 
 const EXTERNAL_RELAYS = [
+  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
   (url: string) => `https://api.cors.lol/?url=${encodeURIComponent(url)}`,
   (url: string) => `https://cors.eu.org/${url}`,
   (url: string) => `https://r.jina.ai/${url}`,
 ];
+
+export function hasLocalFetchProxy(dev: boolean, hostname: string): boolean {
+  return dev && (hostname === "localhost" || hostname === "127.0.0.1");
+}
+
+export function currentFetchContext(): FetchRouteContext {
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+  return {
+    dev: import.meta.env.DEV,
+    hostname,
+    proxyUrl: (import.meta.env.VITE_FETCH_PROXY_URL as string | undefined)?.trim() || "",
+  };
+}
+
+export function buildFetchAttempts(targetUrl: string, ctx: FetchRouteContext): string[] {
+  const attempts: string[] = [];
+
+  if (hasLocalFetchProxy(ctx.dev, ctx.hostname)) {
+    attempts.push(localProxy(targetUrl));
+  } else if (ctx.proxyUrl) {
+    attempts.push(configuredProxy(ctx.proxyUrl, targetUrl));
+  }
+
+  if (isSameOrigin(targetUrl)) {
+    attempts.unshift(targetUrl);
+  }
+
+  for (const relay of EXTERNAL_RELAYS) {
+    attempts.push(relay(targetUrl));
+  }
+
+  return [...new Set(attempts)];
+}
 
 function isSameOrigin(url: string): boolean {
   try {
@@ -21,22 +65,12 @@ function isSameOrigin(url: string): boolean {
 }
 
 export async function fetchRemoteText(url: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<string> {
-  const attempts: Array<() => Promise<string>> = [
-    async () => fetchText(localProxy(url), timeoutMs),
-  ];
-
-  if (isSameOrigin(url)) {
-    attempts.unshift(async () => fetchText(url, timeoutMs));
-  }
-
-  for (const relay of EXTERNAL_RELAYS) {
-    attempts.push(async () => fetchText(relay(url), timeoutMs));
-  }
+  const attempts = buildFetchAttempts(url, currentFetchContext());
 
   let lastErr: unknown;
-  for (const attempt of attempts) {
+  for (const attemptUrl of attempts) {
     try {
-      return await attempt();
+      return await fetchText(attemptUrl, timeoutMs, url);
     } catch (err) {
       lastErr = err;
     }
@@ -44,12 +78,22 @@ export async function fetchRemoteText(url: string, timeoutMs = DEFAULT_TIMEOUT_M
   throw lastErr instanceof Error ? lastErr : new Error("All fetch attempts failed");
 }
 
-async function fetchText(url: string, timeoutMs: number): Promise<string> {
-  const res = await fetchWithTimeout(url, timeoutMs);
+async function fetchText(fetchUrl: string, timeoutMs: number, originalUrl: string): Promise<string> {
+  const res = await fetchWithTimeout(fetchUrl, timeoutMs);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const text = await res.text();
+  let text = await res.text();
   if (!text.trim()) throw new Error("Empty response");
-  return normalizeRelayText(text, url);
+
+  if (fetchUrl.includes("allorigins.win/get")) {
+    try {
+      const parsed = JSON.parse(text) as { contents?: string };
+      if (parsed.contents) text = parsed.contents;
+    } catch {
+      /* use raw */
+    }
+  }
+
+  return normalizeRelayText(text, originalUrl);
 }
 
 function normalizeRelayText(text: string, sourceUrl: string): string {
