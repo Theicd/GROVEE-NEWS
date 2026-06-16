@@ -15,7 +15,9 @@ export type FeedCategory =
   | "health"
   | "alternative"
   | "dev"
-  | "trends";
+  | "trends"
+  | "sports"
+  | "food";
 
 export type SourceType = "rss" | "github_rss" | "community";
 
@@ -317,6 +319,23 @@ export const INTELLIGENCE_FEEDS: NewsFeedDef[] = [
     sourceType: "community",
   }),
   feed({ key: "producthunt", url: "https://www.producthunt.com/feed", label: "Product Hunt", tag: "Product Hunt", category: "trends", priority: 3 }),
+
+  // —— Sports ——
+  feed({ key: "bbc_sport", url: "https://feeds.bbci.co.uk/sport/rss.xml", label: "BBC Sport", tag: "BBC", category: "sports", priority: 1 }),
+  feed({ key: "espn", url: "https://www.espn.com/espn/rss/news", label: "ESPN", tag: "ESPN", category: "sports", priority: 2 }),
+  feed({ key: "skynews_sport", url: "https://feeds.skynews.com/feeds/rss/sport.xml", label: "Sky Sports", tag: "Sky", category: "sports", priority: 3 }),
+
+  // —— Food & dining ——
+  feed({ key: "eater", url: "https://www.eater.com/rss/index.xml", label: "Eater", tag: "Eater", category: "food", priority: 1 }),
+  feed({ key: "bonappetit", url: "https://www.bonappetit.com/feed/rss", label: "Bon Appétit", tag: "BA", category: "food", priority: 2 }),
+  feed({
+    key: "thekitchn",
+    url: "https://www.thekitchn.com/main.rss",
+    label: "The Kitchn",
+    tag: "Kitchn",
+    category: "food",
+    priority: 3,
+  }),
 ].filter((f) => !isBlockedFeedKey(f.key));
 
 /** @deprecated use INTELLIGENCE_FEEDS */
@@ -343,4 +362,6 @@ export const FEED_CATEGORY_LABELS: Record<FeedCategory, string> = {
   alternative: "Alternative / TCM",
   dev: "Dev & GitHub",
   trends: "Trends",
+  sports: "Sports",
+  food: "Food",
 };

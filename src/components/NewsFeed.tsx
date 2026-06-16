@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { buildDailyBriefing } from "../briefing/buildBriefing";
 import { buildNewsFeed, type FeedItem } from "../feed/buildFeed";
+import { buildTopicsDigest, type TopicsDigest } from "../topics/buildTopicsDigest";
 import { FeedCard } from "./FeedCard";
+import { TopicCard } from "./TopicCard";
 
-type FeedMode = "live" | "briefing";
+type FeedMode = "live" | "briefing" | "topics";
 
 type NewsFeedProps = {
   refreshKey: number;
@@ -13,6 +15,7 @@ type NewsFeedProps = {
 export function NewsFeed({ refreshKey, articlesIndexed }: NewsFeedProps) {
   const [mode, setMode] = useState<FeedMode>("live");
   const [items, setItems] = useState<FeedItem[]>([]);
+  const [topicsDigest, setTopicsDigest] = useState<TopicsDigest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const requestRef = useRef(0);
@@ -25,15 +28,24 @@ export function NewsFeed({ refreshKey, articlesIndexed }: NewsFeedProps) {
 
   useEffect(() => {
     const requestId = ++requestRef.current;
-    const firstLoad = items.length === 0;
+    const firstLoad = mode === "topics" ? !topicsDigest : items.length === 0;
     if (firstLoad) setLoading(true);
 
-    const loader = mode === "briefing" ? buildDailyBriefing(20) : buildNewsFeed();
+    const loader =
+      mode === "briefing"
+        ? buildDailyBriefing(20)
+        : mode === "topics"
+          ? buildTopicsDigest({ perLane: 1 })
+          : buildNewsFeed();
 
-    void loader
-      .then((feed) => {
+    void Promise.resolve(loader)
+      .then((result) => {
         if (requestId !== requestRef.current) return;
-        setItems(feed);
+        if (mode === "topics") {
+          setTopicsDigest(result as TopicsDigest);
+        } else {
+          setItems(result as FeedItem[]);
+        }
         setError(null);
         setLoading(false);
       })
@@ -45,15 +57,21 @@ export function NewsFeed({ refreshKey, articlesIndexed }: NewsFeedProps) {
       });
   }, [debouncedKey, mode]);
 
-  if (loading && !items.length && !error) {
+  if (loading && (mode === "topics" ? !topicsDigest : !items.length) && !error) {
     return (
       <section className="gn-feed gn-feed--loading">
-        <p>{mode === "briefing" ? "Building today’s briefing…" : "Loading intelligence feed…"}</p>
+        <p>
+          {mode === "briefing"
+            ? "Building today’s briefing…"
+            : mode === "topics"
+              ? "Building topic mix from keyword lanes…"
+              : "Loading intelligence feed…"}
+        </p>
       </section>
     );
   }
 
-  if (error && !items.length) {
+  if (error && (mode === "topics" ? !topicsDigest : !items.length)) {
     return (
       <section className="gn-feed gn-feed--empty">
         <h2>Feed error</h2>
@@ -64,6 +82,7 @@ export function NewsFeed({ refreshKey, articlesIndexed }: NewsFeedProps) {
 
   const trending = items.filter((i) => i.kind === "trending").length;
   const articles = items.filter((i) => i.kind === "article").length;
+  const topicHits = topicsDigest?.hits ?? [];
 
   return (
     <section className="gn-feed" aria-label="News intelligence feed">
@@ -83,16 +102,39 @@ export function NewsFeed({ refreshKey, articlesIndexed }: NewsFeedProps) {
           >
             Today&apos;s briefing
           </button>
+          <button
+            type="button"
+            className={`gn-feed__tab${mode === "topics" ? " gn-feed__tab--active" : ""}`}
+            onClick={() => setMode("topics")}
+          >
+            Topics
+          </button>
         </div>
         <p>
           {mode === "briefing"
             ? `${items.length} stories · last 24h · balanced across topics`
-            : `${trending} trending · ${articles} summaries · sorted by latest`}
+            : mode === "topics"
+              ? topicsDigest
+                ? `${topicHits.length} picks · ${topicsDigest.stats.lanesWithHits}/${topicsDigest.stats.totalLanes} lanes · single-keyword search`
+                : "Topic mix"
+              : `${trending} trending · ${articles} summaries · sorted by latest`}
           {loading ? " · updating…" : ""}
         </p>
       </header>
 
-      {!items.length ? (
+      {mode === "topics" ? (
+        !topicHits.length ? (
+          <p className="gn-feed__empty-inline">
+            No topic matches yet — run Refresh feeds in ENGINE, then return here.
+          </p>
+        ) : (
+          <div className="gn-feed__stream gn-feed__stream--topics">
+            {topicHits.map((hit) => (
+              <TopicCard key={hit.id} hit={hit} />
+            ))}
+          </div>
+        )
+      ) : !items.length ? (
         <p className="gn-feed__empty-inline">
           {mode === "briefing"
             ? "No briefing items yet — run Refresh feeds in ENGINE after Qwen finishes summarizing."
